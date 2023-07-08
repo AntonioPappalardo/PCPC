@@ -5,26 +5,31 @@
 #include <mpi.h>
 #define N 8
 
-
-/*
-
-MPI_Datatype row;
-    MPI_Type_contiguous(in_columns,MPI_CHAR,&row);
-    MPI_Type_commit(&row);
-*/
+int* createForest(int n,int m);
+void initializeForestRandom(int* f);
+void print_Forest(int* f,int n, int m);
+void scatter_Forest(int* f,int n,int m);
+int* compute(int* f,int rank, int world_size);
 
 
+MPI_Comm comm_world;
 int main(int argc, char** argv) {
     int world_size;
     int rank;
-    
-    MPI_Status status;
     MPI_Init(NULL, NULL);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    srand(time(0));
+    
+    /**
+     * 
+     * Inserire il controllo del numero dei Processori
+     * 
+    */
+    
+
+    MPI_Status status;
     int msg[N];
-    int forest[N*N];
+    int *forest;
     int *sendcount;
     int *starting; 
     int t;
@@ -37,14 +42,17 @@ int main(int argc, char** argv) {
     if (rank==0)
     {
     
+    forest=createForest(N,N);
     /*
     Inizialzzazione Foresta
     */
+    srand(time(0));
     for (size_t i = 0; i < N*N; i++)
     {
         forest[i]= rand()%3;
     }
-    
+
+    print_Forest(forest,N,N);
     /*
     Stampa foresta
     */
@@ -75,7 +83,7 @@ int main(int argc, char** argv) {
     printf("\n");
     }
 
-
+    scatter_Forest(forest,N,N);
 /*Sending Forest method*/
     int execess_row=N%world_size;
     int row_for_each_process=N/world_size;
@@ -109,7 +117,7 @@ int main(int argc, char** argv) {
 
     MPI_Recv( &msg , recv_count , row, 0 , 10 , MPI_COMM_WORLD , &status);
     
-
+    msg=compute(msg,rank,world_size);
 /*Compute*/
 
     for (size_t i = 0; i < N-1 ; i++)
@@ -189,18 +197,27 @@ int main(int argc, char** argv) {
                 }
             }
         }
-        
-        
     }
+        
+        
+    /**
+     * 
+     * RESULTS
+     * 
+    */
     int *final;
     if (rank==0)
     {
         final=malloc(sizeof(int)*N*N);
     }
-    
     MPI_Gatherv( &msg, recv_count , row , final , sendcount , starting , row , 0 , MPI_COMM_WORLD);
     if (rank==0)
     {
+
+    print_Forest(forest,N,N)
+    /**
+     * Stampa foresta
+    */
     for (size_t i = 0; i < N*N; i++)
     {
         if (i%N==0)
