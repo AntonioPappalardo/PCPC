@@ -3,7 +3,7 @@
 #include<time.h>
 
 #include <mpi.h>
-#define N 4
+#define N 8
 
 typedef struct{
     int* matrix; 
@@ -187,85 +187,92 @@ Forest* scatter_Forest(int n, int m)
     }
     return f;
 }
-Forest* compute(Forest* f,int rank, int world_size){
-    
+Forest* compute(Forest* f,int rank, int world_size)
+{
     int number_of_element=f->rows*f->columns;
     int t;
     Forest* toreturn=createForest(f->rows,f->columns);
-    for (int j = 0; j < number_of_element; j++)
-    {
-        if ( toreturn->matrix[j]!=2)
-        {
-            toreturn->matrix[j]=f->matrix[j];
-        }
-        
-        int isempty=-1;
-        if (f->matrix[j]==2)
-        {
-            int nrow=j/f->columns;
-            int position=j%f->columns;
-            if ( (position!=0) && (f->matrix[j-1]==1) )
-            {
-                toreturn->matrix[j-1]=2;
-            }
-            if ( (position!=f->columns-1) && (f->matrix[j+1]==1) )
-            {
-                toreturn->matrix[j+1]=2;
-            }
-            if ( (nrow!=0) && (f->matrix[j-f->columns]==1) )
-            {
-                toreturn->matrix[j-f->columns]=2;
-            }
-            if ( (nrow!=f->rows-1) && (f->matrix[j+f->columns]==1) )
-            {
-                toreturn->matrix[j+f->columns]=2;
-            }
-            if ( (rank!=0) && (nrow==0) )
-            {
-                isempty=1;
-                MPI_Send(&position,1,MPI_INT,rank-1,10,MPI_COMM_WORLD);
-            }
-            if ( (rank!=world_size-1) && (nrow==f->rows-1) )
-            {
-                isempty=1;
-                MPI_Send(&position,1,MPI_INT,rank+1,10,MPI_COMM_WORLD);
-            }                      
-        }
-        
     
-        if (isempty==-1)
+    
+    for (int i = 0; i < f->rows; i++)
+    {
+        int isempty=-1;
+        for (int j = 0; j < f->columns; j++)
         {
-            if (rank!=0)
-                {
-                    MPI_Send(&isempty,1,MPI_INT,rank-1,10,MPI_COMM_WORLD);
-                }
-                if (rank!=world_size-1)
-                {
-                    MPI_Send(&isempty,1,MPI_INT,rank+1,10,MPI_COMM_WORLD);
-                }  
-        }
-        if (rank!=0)
-        {
-            MPI_Recv(&t, 1, MPI_INT, rank-1 , 10 , MPI_COMM_WORLD ,&status);
-            if (t!=-1)
+            int ap=j+(i*f->columns);
+            if ( toreturn->matrix[ap]!=2)
             {
-                if (f->matrix[t]==1)
-                {
-                    toreturn->matrix[t]=2;
-                }
+                toreturn->matrix[ap]=f->matrix[ap];
             }
             
-        }
-        if (rank!=world_size-1)
-        {
-            MPI_Recv(&t, 1, MPI_INT, rank+1 , 10 , MPI_COMM_WORLD ,&status);
-            if (t!=-1)
+            if (f->matrix[ap]==2)
+            {
+                if ( (j!=0) && (f->matrix[ap-1]==1) )
+                {
+                    toreturn->matrix[ap-1]=2;
+                }
+                if ( (j!=f->columns-1) && (f->matrix[ap+1]==1) )
+                {
+                    toreturn->matrix[ap+1]=2;
+                }
+                if ( (i!=0) && (f->matrix[ap-f->columns]==1) )
+                {
+                    toreturn->matrix[ap-f->columns]=2;
+                }
+                if ( (i!=f->rows-1) && (f->matrix[ap+f->columns]==1) )
+                {
+                    toreturn->matrix[ap+f->columns]=2;
+                }
+                if ( (rank!=0) && (i==0) )
+                {
+                    isempty=1;
+                    MPI_Send(&j,1,MPI_INT,rank-1,10,MPI_COMM_WORLD);
+                }
+                if ( (rank!=world_size-1) && (i==f->rows-1) )
+                {
+                    isempty=1;
+                    MPI_Send(&j,1,MPI_INT,rank+1,10,MPI_COMM_WORLD);
+                }                      
+            }
+            else
+            {
+                if (i==f->rows-1)
+                {
+                    if (rank!=world_size-1)
+                    {
+                        MPI_Send(&isempty,1,MPI_INT,rank+1,10,MPI_COMM_WORLD);
+                    }  
+                }
+                if(i==0)
+                {
+                    if (rank!=0)
+                    {
+                        MPI_Send(&isempty,1,MPI_INT,rank-1,10,MPI_COMM_WORLD);
+                    }    
+                }
+            }
+
+            if (i==0 && rank!=0)
             {
                 
-                int last_row=f->columns*(f->rows-1);
-                if (f->matrix[last_row+t]==1)
+                MPI_Recv(&t, 1, MPI_INT, rank-1, 10, MPI_COMM_WORLD, &status);
+                if (t!=-1)
                 {
-                    toreturn->matrix[last_row+t]=2;
+                    if (f->matrix[t]==1)
+                    {
+                        toreturn->matrix[t]=2;
+                    }
+                }
+            }
+            if (i==f->rows-1 && rank!=world_size-1)
+            {
+                MPI_Recv(&t, 1, MPI_INT, rank+1, 10, MPI_COMM_WORLD, &status);
+                if (t!=-1)
+                {
+                    if (f->matrix[t+(f->columns*i)]==1)
+                    {
+                        toreturn->matrix[t+(f->columns*i)]=2;
+                    }
                 }
             }
         }
