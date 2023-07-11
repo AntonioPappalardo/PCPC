@@ -4,7 +4,8 @@
 
 #include <mpi.h>
 #define N 8
-
+#define pp 10
+#define pf 3
 typedef struct{
     int* matrix; 
     int rows;
@@ -22,7 +23,9 @@ int* sendcount;
 int* starting; 
 int recv_count;
 
-MPI_Comm comm_world;
+MPI_Group used_group;
+MPI_Group world_group;
+MPI_Comm used_comm;
 MPI_Status status;
 int main(int argc, char** argv) {
     int world_size;
@@ -30,38 +33,59 @@ int main(int argc, char** argv) {
     MPI_Init(NULL, NULL);
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    /**
-     * 
-     * Inserire il controllo del numero dei Processori
-     * 
-    */
+    MPI_Comm_group(MPI_COMM_WORLD, &world_group);
+
+    int in_rows=atoi(argv[1]);
+    int in_columns=atoi(argv[2]);
+    int generations=atoi(argv[3]);
+
+    //if the number is less than the number of processes, the program uses only n_rows processes.
+    int * ranks;
+    if(in_rows<world_size){
+        int ranks[in_rows];
+        for(int i=0;i<in_rows;i++){
+            ranks[i]=i;
+        }
+    
+        MPI_Group_incl(world_group,in_rows,ranks,&used_group);    
+        MPI_Comm_create(MPI_COMM_WORLD,used_group,&used_comm);        
+        
+    }else{
+        used_comm=MPI_COMM_WORLD;
+    }
+    if(used_comm==MPI_COMM_NULL){
+            MPI_Finalize();
+            exit(0);
+    }
+    MPI_Comm_size(used_comm,&world_size);
+    MPI_Comm_rank(used_comm,&rank);
+
     int* msg;
     Forest* forest;
     int t;
     MPI_Datatype row;
-    MPI_Type_contiguous( N , MPI_INT , &row);
+    MPI_Type_contiguous( in_columns , MPI_INT , &row);
     MPI_Type_commit( &row);
     sendcount=malloc(sizeof(int)*world_size);
     starting=malloc(sizeof(int)*world_size);
     
-    forest= scatter_Forest(N,N);
+    forest= scatter_Forest(in_rows,in_columns);
     Forest* ff_compiled;
     ff_compiled=forest;
-    ff_compiled=compute(ff_compiled,rank,world_size); 
-    /**
-     * 
-     * RESULTS
-     * 
-    */
+    for (size_t i = 0; i < generations; i++)
+    {
+        ff_compiled=compute(ff_compiled,rank,world_size); 
+    }
+    
     Forest* final_forest;
     int* pointer_matrix;
     if (rank==0)
     {
-        final_forest=createForest(N,N);
+        final_forest=createForest(in_rows,in_columns);
         pointer_matrix=&final_forest->matrix[0];
     }
     printf("\n");
-    MPI_Gatherv( &(ff_compiled->matrix[0]), sendcount[rank] , row , pointer_matrix , sendcount , starting , row , 0 , MPI_COMM_WORLD);
+    MPI_Gatherv( &(ff_compiled->matrix[0]), sendcount[rank] , row , pointer_matrix , sendcount , starting , row , 0 , used_comm);
     if (rank==0)
     {
         print_Forest_emoji(final_forest);
@@ -137,12 +161,12 @@ void print_Forest(Forest *f){
 Forest* scatter_Forest(int n, int m)
 {
     MPI_Datatype row;
-    MPI_Type_contiguous( N , MPI_INT , &row);
+    MPI_Type_contiguous( m , MPI_INT , &row);
     MPI_Type_commit( &row);
     int world_size;
     int rank;
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(used_comm, &world_size);
+    MPI_Comm_rank(used_comm, &rank);
     int execess_row=n%world_size;
     int row_for_each_process=n/world_size;
     Forest* f;
@@ -178,7 +202,7 @@ Forest* scatter_Forest(int n, int m)
         f=createForest(recv_count,m);
 
     }
-    MPI_Scatterv( f->matrix, sendcount, starting, row, f->matrix, recv_count, row, 0, MPI_COMM_WORLD);
+    MPI_Scatterv( f->matrix, sendcount, starting, row, f->matrix, recv_count, row, 0, used_comm);
     
     if(rank==0)
     {
@@ -192,19 +216,19 @@ Forest* compute(Forest* f,int rank, int world_size)
     int number_of_element=f->rows*f->columns;
     int t;
     Forest* toreturn=createForest(f->rows,f->columns);
+    toreturn->matrix=f->matrix;
+    for (int i = 0; i < f->rows*f->columns; i++)
+    {
+        toreturn->matrix[i]=f->matrix[i];
+    }
     
     
     for (int i = 0; i < f->rows; i++)
     {
-        int isempty=-1;
         for (int j = 0; j < f->columns; j++)
         {
+            int isempty=-1;
             int ap=j+(i*f->columns);
-            if ( toreturn->matrix[ap]!=2)
-            {
-                toreturn->matrix[ap]=f->matrix[ap];
-            }
-            
             if (f->matrix[ap]==2)
             {
                 if ( (j!=0) && (f->matrix[ap-1]==1) )
@@ -226,36 +250,46 @@ Forest* compute(Forest* f,int rank, int world_size)
                 if ( (rank!=0) && (i==0) )
                 {
                     isempty=1;
-                    MPI_Send(&j,1,MPI_INT,rank-1,10,MPI_COMM_WORLD);
+                    MPI_Send(&j,1,MPI_INT,rank-1,10,used_comm);
                 }
                 if ( (rank!=world_size-1) && (i==f->rows-1) )
                 {
                     isempty=1;
-                    MPI_Send(&j,1,MPI_INT,rank+1,10,MPI_COMM_WORLD);
+                    MPI_Send(&j,1,MPI_INT,rank+1,10,used_comm);
                 }                      
             }
             else
             {
+                srand(time(0));
+                if (f->matrix[ap]==1 && (rand()%100<pf))
+                {
+                    f->matrix[ap]=2;
+                }
+                if (f->matrix[ap]==0 && (rand()%100<pp))
+                {
+                    f->matrix[ap]=1;
+                }
                 if (i==f->rows-1)
                 {
                     if (rank!=world_size-1)
                     {
-                        MPI_Send(&isempty,1,MPI_INT,rank+1,10,MPI_COMM_WORLD);
-                    }  
+                        MPI_Send(&isempty,1,MPI_INT,rank+1,10,used_comm);
+                    }
                 }
                 if(i==0)
                 {
                     if (rank!=0)
                     {
-                        MPI_Send(&isempty,1,MPI_INT,rank-1,10,MPI_COMM_WORLD);
-                    }    
+                        MPI_Send(&isempty,1,MPI_INT,rank-1,10,used_comm);
+                    }
+
                 }
             }
 
             if (i==0 && rank!=0)
             {
                 
-                MPI_Recv(&t, 1, MPI_INT, rank-1, 10, MPI_COMM_WORLD, &status);
+                MPI_Recv(&t, 1, MPI_INT, rank-1, 10, used_comm, &status);
                 if (t!=-1)
                 {
                     if (f->matrix[t]==1)
@@ -266,7 +300,8 @@ Forest* compute(Forest* f,int rank, int world_size)
             }
             if (i==f->rows-1 && rank!=world_size-1)
             {
-                MPI_Recv(&t, 1, MPI_INT, rank+1, 10, MPI_COMM_WORLD, &status);
+                MPI_Recv(&t, 1, MPI_INT, rank+1, 10, used_comm, &status);
+
                 if (t!=-1)
                 {
                     if (f->matrix[t+(f->columns*i)]==1)
