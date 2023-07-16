@@ -90,6 +90,9 @@ int main(int argc, char** argv) {
     if(rank==0)
     {
         printf("Tempo di esecuzione:%f\n",end_time-start_time);
+        FILE* fp=fopen(argv[4],"a+");
+        fprintf(fp,"%d,%d,%d,%d,%f\n",world_size,in_rows,in_columns,generations,end_time-start_time);
+        fclose(fp);
         free(final_forest);
     }
     free(ff_compiled);

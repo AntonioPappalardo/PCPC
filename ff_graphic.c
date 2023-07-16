@@ -34,11 +34,12 @@ int main(int argc, char** argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &world_size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_group(MPI_COMM_WORLD, &world_group);
+
     int in_rows=atoi(argv[1]);
     int in_columns=atoi(argv[2]);
     int generations=atoi(argv[3]);
 
-    //if number of rows is less of the number of the processors
+    //if the number is less than the number of processes, the program uses only n_rows processes.
     int * ranks;
     if(in_rows<world_size){
         int ranks[in_rows];
@@ -68,8 +69,6 @@ int main(int argc, char** argv) {
     sendcount=malloc(sizeof(int)*world_size);
     starting=malloc(sizeof(int)*world_size);
     
-    double start_time=MPI_Wtime();
-
     forest= scatter_Forest(in_rows,in_columns);
     Forest* ff_compiled;
     ff_compiled=forest;
@@ -85,14 +84,12 @@ int main(int argc, char** argv) {
         final_forest=createForest(in_rows,in_columns);
         pointer_matrix=&final_forest->matrix[0];
     }
+    printf("\n");
     MPI_Gatherv( &(ff_compiled->matrix[0]), sendcount[rank] , row , pointer_matrix , sendcount , starting , row , 0 , used_comm);
-    double end_time= MPI_Wtime();
-    if(rank==0)
+    if (rank==0)
     {
-        printf("Tempo di esecuzione:%f\n",end_time-start_time);
-        free(final_forest);
+        print_Forest_emoji(final_forest);
     }
-    free(ff_compiled);
     MPI_Finalize();
 }
 
@@ -165,7 +162,6 @@ void print_Forest(Forest *f){
 }
 Forest* scatter_Forest(int n, int m)
 {
-
     MPI_Datatype row;
     MPI_Type_contiguous( m , MPI_INT , &row);
     MPI_Type_commit( &row);
@@ -181,20 +177,16 @@ Forest* scatter_Forest(int n, int m)
     {
         f=createForest(n,m);
         initializeForestRandom(f);
+        print_Forest_emoji(f);
     }
     for (size_t i = 0; i < world_size; i++)
     {
         sendcount[i]=row_for_each_process;
-        
         if (execess_row>0)
         {
             execess_row-=1;
             sendcount[i]+=1;
         }
-        if (rank==i )
-        {
-            recv_count=sendcount[i];
-        }  
         if (i==0)
         {
             starting[i]=0;
@@ -202,15 +194,18 @@ Forest* scatter_Forest(int n, int m)
         else{
             starting[i]=starting[i-1]+sendcount[i-1];
         }     
-           
+        if (rank==i)
+        {
+            recv_count=sendcount[i];
+        }     
     }
     if (rank!=0)
     {
         f=createForest(recv_count,m);
 
     }
-    
     MPI_Scatterv( f->matrix, sendcount, starting, row, f->matrix, recv_count, row, 0, used_comm);
+    
     if(rank==0)
     {
         f->rows=sendcount[0];
